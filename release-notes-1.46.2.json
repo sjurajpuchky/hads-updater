@@ -1,0 +1,17 @@
+{
+  "new": [
+    "Aktualizace HADS z oficiální služby updater.heistech.cz."
+  ],
+  "improved": [
+    "Bezpečné stažení a ověření aktualizačního balíčku před instalací."
+  ],
+  "fixed": [
+    "Staging aktualizace nyní vždy probíhá mimo nahrazovanou instalační složku HADS."
+  ],
+  "security": [
+    "Ověření podpisu release.json, velikosti balíčku a SHA-256."
+  ],
+  "important": [
+    "Automatickou instalaci při spuštění nebo restartu lze povolit v Nastavení → Aktualizace."
+  ]
+}
