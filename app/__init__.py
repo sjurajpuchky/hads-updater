@@ -1,0 +1,1 @@
+"""HADS updater package."""

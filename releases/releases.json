@@ -1,0 +1,61 @@
+{
+  "product": "HADS",
+  "current": {
+    "version": "1.46.1",
+    "release_date": "2026-09-05",
+    "minimum_version": "1.34.4",
+    "mandatory": false,
+    "title": "HADS 1.46.1",
+    "summary": "Online aktualizace přes zabezpečený endpoint updater.heistech.cz.",
+    "sha256": "25535a2d306dfc9e44340eddbdcc611dc4c73991e07493829a569ec966041b86",
+    "byte_size": 3435435,
+    "release_url": "/release-files/1.46.1/release.json",
+    "signature_url": "/release-files/1.46.1/release.json.sig",
+    "package_url": "/release-files/1.46.1/HADS_Update_1.46.1.zip",
+    "current": true
+  },
+  "releases": [
+    {
+      "version": "1.46.1",
+      "release_date": "2026-09-05",
+      "minimum_version": "1.34.4",
+      "mandatory": false,
+      "title": "HADS 1.46.1",
+      "summary": "Online aktualizace přes zabezpečený endpoint updater.heistech.cz.",
+      "sha256": "25535a2d306dfc9e44340eddbdcc611dc4c73991e07493829a569ec966041b86",
+      "byte_size": 3435435,
+      "release_url": "/release-files/1.46.1/release.json",
+      "signature_url": "/release-files/1.46.1/release.json.sig",
+      "package_url": "/release-files/1.46.1/HADS_Update_1.46.1.zip",
+      "current": true
+    },
+    {
+      "version": "1.46.0",
+      "release_date": "2026-09-05",
+      "minimum_version": "1.34.4",
+      "mandatory": false,
+      "title": "HADS 1.46.0",
+      "summary": "Aktuální podepsaná verze HADS pro online aktualizaci.",
+      "sha256": "b8a65a06a2b025c836241aca915cc56f20eccaf5f590da36943396cadd577643",
+      "byte_size": 3409307,
+      "release_url": "/release-files/1.46.0/release.json",
+      "signature_url": "/release-files/1.46.0/release.json.sig",
+      "package_url": "/release-files/1.46.0/HADS_Update_1.46.0.zip",
+      "current": false
+    },
+    {
+      "version": "1.0.1",
+      "release_date": "2026-08-31",
+      "minimum_version": "1.0.0",
+      "mandatory": false,
+      "title": "HADS 1.0.1",
+      "summary": "Test",
+      "sha256": "7dd3fe5432eac9f18abec4fb583f18c0356b21fd49e1d72bb5ee880463e9b7d4",
+      "byte_size": 316613,
+      "release_url": "/release-files/1.0.1/release.json",
+      "signature_url": "/release-files/1.0.1/release.json.sig",
+      "package_url": "/release-files/1.0.1/7458_individualni-ceny.xml.zip",
+      "current": false
+    }
+  ]
+}
