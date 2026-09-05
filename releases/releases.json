@@ -1,20 +1,34 @@
 {
   "product": "HADS",
   "current": {
-    "version": "1.46.2",
+    "version": "1.46.3",
     "release_date": "2026-09-05",
     "minimum_version": "1.34.4",
     "mandatory": false,
-    "title": "HADS 1.46.2",
-    "summary": "Oprava instalace online aktualizace mimo nahrazovanou složku HADS.",
-    "sha256": "ed2215732ebcfd7b27d4581a5feabab09a01654225b8ec4f7d5adacd1a1d2263",
-    "byte_size": 3435575,
-    "release_url": "/release-files/1.46.2/release.json",
-    "signature_url": "/release-files/1.46.2/release.json.sig",
-    "package_url": "/release-files/1.46.2/HADS_Update_1.46.2.zip",
+    "title": "HADS 1.46.3",
+    "summary": "Oprava oprávnění shellových skriptů v aktualizačním balíčku.",
+    "sha256": "1da37bd495a46687d46569dc007c889e811ea8b891a8bbf77a2e2b4c0742e7ad",
+    "byte_size": 3411034,
+    "release_url": "/release-files/1.46.3/release.json",
+    "signature_url": "/release-files/1.46.3/release.json.sig",
+    "package_url": "/release-files/1.46.3/HADS_Update_1.46.3.zip",
     "current": true
   },
   "releases": [
+    {
+      "version": "1.46.3",
+      "release_date": "2026-09-05",
+      "minimum_version": "1.34.4",
+      "mandatory": false,
+      "title": "HADS 1.46.3",
+      "summary": "Oprava oprávnění shellových skriptů v aktualizačním balíčku.",
+      "sha256": "1da37bd495a46687d46569dc007c889e811ea8b891a8bbf77a2e2b4c0742e7ad",
+      "byte_size": 3411034,
+      "release_url": "/release-files/1.46.3/release.json",
+      "signature_url": "/release-files/1.46.3/release.json.sig",
+      "package_url": "/release-files/1.46.3/HADS_Update_1.46.3.zip",
+      "current": true
+    },
     {
       "version": "1.46.2",
       "release_date": "2026-09-05",
@@ -27,7 +41,7 @@
       "release_url": "/release-files/1.46.2/release.json",
       "signature_url": "/release-files/1.46.2/release.json.sig",
       "package_url": "/release-files/1.46.2/HADS_Update_1.46.2.zip",
-      "current": true
+      "current": false
     },
     {
       "version": "1.46.1",
