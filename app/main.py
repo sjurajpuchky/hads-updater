@@ -135,6 +135,42 @@ def render_page(content: str, *, title: str) -> HTMLResponse:
       background: rgba(255, 255, 255, 0.54);
       margin-top: 20px;
     }}
+    .version-hero {{
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 20px;
+      flex-wrap: wrap;
+      border-color: rgba(217, 108, 45, 0.28);
+      background: linear-gradient(135deg, rgba(217,108,45,0.12), rgba(255,255,255,0.64));
+    }}
+    .version-number {{
+      margin: 2px 0 0;
+      font-size: clamp(2rem, 5vw, 3.25rem);
+      line-height: 1;
+      letter-spacing: -0.04em;
+    }}
+    .badge {{
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 5px 10px;
+      background: rgba(31, 122, 76, 0.12);
+      color: var(--ok);
+      font-size: 0.82rem;
+      font-weight: 700;
+    }}
+    .badge-warn {{
+      background: rgba(217, 108, 45, 0.14);
+      color: var(--accent-strong);
+    }}
+    .table-wrap {{ overflow-x: auto; }}
+    table {{ width: 100%; border-collapse: collapse; min-width: 680px; }}
+    th, td {{ padding: 12px 10px; border-bottom: 1px solid var(--line); text-align: left; }}
+    th {{ color: var(--muted); font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.04em; }}
+    tr:last-child td {{ border-bottom: 0; }}
+    .version-link {{ color: var(--accent-strong); font-weight: 700; text-decoration: none; }}
+    .version-link:hover {{ text-decoration: underline; }}
     .alert-ok {{
       border-color: rgba(31, 122, 76, 0.25);
       color: var(--ok);
@@ -243,6 +279,7 @@ def render_dashboard(
     }
     notes_value = html.escape(json.dumps(notes_example, ensure_ascii=False, indent=2))
     token = secrets.token_urlsafe(16)
+    release_overview = render_release_overview(collect_release_index(settings))
 
     content = f"""
       <div class="button-row" style="justify-content: space-between; margin-top: 0;">
@@ -253,6 +290,7 @@ def render_dashboard(
         <a class="link-button ghost" href="/logout">Odhlásit</a>
       </div>
       {status_block}
+      {release_overview}
       <form method="post" action="/releases" enctype="multipart/form-data" class="card">
         <input type="hidden" name="csrf_token" value="{token}">
         <div class="grid">
@@ -297,6 +335,77 @@ def render_dashboard(
     response = render_page(content, title="HADS Release Desk")
     response.set_cookie("hads_release_csrf", token, httponly=True, samesite="lax")
     return response
+
+
+def _format_bytes(value: object) -> str:
+    if not isinstance(value, int) or value < 0:
+        return "—"
+    size = float(value)
+    for unit in ("B", "KB", "MB", "GB"):
+        if size < 1024 or unit == "GB":
+            return f"{size:.0f} {unit}" if unit == "B" else f"{size:.1f} {unit}"
+        size /= 1024
+    return "—"
+
+
+def render_release_overview(index: dict) -> str:
+    releases = index.get("releases") if isinstance(index, dict) else None
+    current = index.get("current") if isinstance(index, dict) else None
+    if not isinstance(releases, list) or not releases or not isinstance(current, dict):
+        return (
+            '<section class="card"><h2>Dostupné verze</h2>'
+            '<p class="muted">V updateru zatím není publikovaná žádná verze.</p></section>'
+        )
+
+    current_version = html.escape(str(current.get("version") or "—"))
+    current_date = html.escape(str(current.get("release_date") or "neuvedeno"))
+    current_summary = html.escape(str(current.get("summary") or "Bez popisu."))
+    current_package = html.escape(str(current.get("package_url") or "#"), quote=True)
+    mandatory = bool(current.get("mandatory"))
+    mandatory_badge = '<span class="badge badge-warn">Povinná</span>' if mandatory else ""
+
+    rows: list[str] = []
+    for release in releases:
+        if not isinstance(release, dict):
+            continue
+        version = html.escape(str(release.get("version") or "—"))
+        release_date = html.escape(str(release.get("release_date") or "—"))
+        minimum = html.escape(str(release.get("minimum_version") or "—"))
+        package_url = html.escape(str(release.get("package_url") or "#"), quote=True)
+        state = '<span class="badge">Aktuální</span>' if release.get("current") else "Dostupná"
+        if release.get("mandatory"):
+            state += ' <span class="badge badge-warn">Povinná</span>'
+        rows.append(
+            "<tr>"
+            f"<td><strong>{version}</strong></td>"
+            f"<td>{release_date}</td>"
+            f"<td>{minimum}</td>"
+            f"<td>{_format_bytes(release.get('byte_size'))}</td>"
+            f"<td>{state}</td>"
+            f'<td><a class="version-link" href="{package_url}">Stáhnout ZIP</a></td>'
+            "</tr>"
+        )
+
+    return f"""
+      <section class="card version-hero">
+        <div>
+          <span class="badge">Aktuální verze</span> {mandatory_badge}
+          <h2 class="version-number">{current_version}</h2>
+          <p class="muted">Vydáno {current_date}</p>
+          <p>{current_summary}</p>
+        </div>
+        <a class="link-button" href="{current_package}">Stáhnout aktuální ZIP</a>
+      </section>
+      <section class="card">
+        <h2>Dostupné verze ({len(rows)})</h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Verze</th><th>Datum</th><th>Minimum</th><th>Velikost</th><th>Stav</th><th>Balíček</th></tr></thead>
+            <tbody>{''.join(rows)}</tbody>
+          </table>
+        </div>
+      </section>
+    """
 
 
 @app.get("/health", response_model=HealthResponse)
