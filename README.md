@@ -34,6 +34,21 @@ The admin UI lets you:
 
 The preview is informational. On publication the backend reads and validates the uploaded ZIP again and uses the manifest values as the only source for the version, minimum version and release notes. A text `release_notes` value is normalized to the `important` category; a structured object may use `new`, `improved`, `fixed`, `security` and `important`.
 
+### Nginx upload limit
+
+The preview and publication endpoints upload the complete ZIP. Nginx defaults to a
+1 MB request limit, which rejects normal HADS packages with `413 Request Entity Too
+Large` before FastAPI receives them. The virtual host serving this application must
+therefore contain, inside its `server` block:
+
+```nginx
+client_max_body_size 512m;
+```
+
+After changing the virtual host, validate and reload nginx. The browser UI detects
+non-JSON proxy responses and reports this limit explicitly instead of displaying a
+JSON parser error.
+
 On submit, the backend creates:
 
 - `HADS_RELEASE_OUTPUT_ROOT/<version>/<package>.zip`

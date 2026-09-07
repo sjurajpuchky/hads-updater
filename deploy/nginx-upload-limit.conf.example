@@ -1,0 +1,4 @@
+# Add this directive to the nginx server block for updater.heistech.cz.
+# Both inspection and publication upload the complete ZIP. 512 MiB leaves
+# enough room for normal releases without opening an unnecessarily broad limit.
+client_max_body_size 512m;

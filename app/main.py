@@ -355,7 +355,20 @@ def render_dashboard(
             body.append("package_file", file);
             try {{
               const response = await fetch("/releases/inspect", {{ method: "POST", body }});
-              const payload = await response.json();
+              const contentType = response.headers.get("content-type") || "";
+              let payload = {{}};
+              if (contentType.includes("application/json")) {{
+                payload = await response.json();
+              }} else {{
+                await response.text();
+                if (response.status === 413) {{
+                  throw new Error("ZIP je větší než povolený limit webového serveru. Zvyšte v nginx client_max_body_size.");
+                }}
+                if (response.redirected || response.status === 401 || response.status === 403) {{
+                  throw new Error("Relace vypršela nebo ověření formuláře selhalo. Obnov stránku a přihlas se znovu.");
+                }}
+                throw new Error(`Server vrátil neočekávanou odpověď (HTTP ${{response.status}}).`);
+              }}
               if (!response.ok) throw new Error(payload.detail || "Manifest se nepodařilo načíst.");
               version.textContent = payload.version;
               minimum.textContent = payload.minimum_version;
