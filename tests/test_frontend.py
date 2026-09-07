@@ -2,10 +2,19 @@ from __future__ import annotations
 
 import unittest
 
-from app.main import render_release_overview
+from app.main import render_dashboard, render_release_overview
 
 
 class ReleaseOverviewTests(unittest.TestCase):
+    def test_publish_form_loads_manifest_fields_from_zip(self):
+        markup = render_dashboard().body.decode("utf-8")
+        self.assertIn('id="manifest_preview"', markup)
+        self.assertIn('fetch("/releases/inspect"', markup)
+        self.assertIn('id="publish_button" type="submit" disabled', markup)
+        self.assertNotIn('name="version"', markup)
+        self.assertNotIn('name="minimum_version"', markup)
+        self.assertNotIn('name="notes_json"', markup)
+
     def test_empty_updater_has_clear_message(self):
         markup = render_release_overview({"current": None, "releases": []})
         self.assertIn("zatím není publikovaná žádná verze", markup)

@@ -7,6 +7,15 @@
     "mandatory": false,
     "title": "HADS 1.46.5",
     "summary": "Prázdná servisní aktualizace bez funkčních změn.",
+    "release_notes": {
+      "fixed": [],
+      "important": [
+        "Prázdná servisní aktualizace bez funkčních změn oproti verzi 1.46.4."
+      ],
+      "improved": [],
+      "new": [],
+      "security": []
+    },
     "sha256": "a3876bacaf99026039e9f2703ad8aa8e079e11c05be6a47470f7974783ef23b0",
     "byte_size": 3412314,
     "release_url": "/release-files/1.46.5/release.json",
@@ -22,6 +31,15 @@
       "mandatory": false,
       "title": "HADS 1.46.5",
       "summary": "Prázdná servisní aktualizace bez funkčních změn.",
+      "release_notes": {
+        "fixed": [],
+        "important": [
+          "Prázdná servisní aktualizace bez funkčních změn oproti verzi 1.46.4."
+        ],
+        "improved": [],
+        "new": [],
+        "security": []
+      },
       "sha256": "a3876bacaf99026039e9f2703ad8aa8e079e11c05be6a47470f7974783ef23b0",
       "byte_size": 3412314,
       "release_url": "/release-files/1.46.5/release.json",
@@ -36,6 +54,24 @@
       "mandatory": false,
       "title": "HADS 1.46.4",
       "summary": "Automatické znovuspuštění nové verze po dokončení aktualizace.",
+      "release_notes": {
+        "fixed": [
+          "spustit.bat po aktualizaci odděleně spustí nový HADS.exe a nečeká na ruční restart.",
+          "spustit.sh po aktualizaci spustí nový backend v samostatné procesní relaci."
+        ],
+        "important": [
+          "Po úspěšné aktualizaci už není nutné HADS ručně spouštět ani restartovat počítač."
+        ],
+        "improved": [
+          "Po dokončení aktualizace se nově nainstalovaná verze automaticky spustí přes platformní launcher."
+        ],
+        "new": [
+          "Aktualizace HADS z oficiální služby updater.heistech.cz."
+        ],
+        "security": [
+          "Zachováno ověření podpisu release.json, velikosti balíčku a SHA-256."
+        ]
+      },
       "sha256": "24e9852cdd967f2a3cba2c8f24a4a63d37d8c059c1c130463ea281dc5bfe915a",
       "byte_size": 3412310,
       "release_url": "/release-files/1.46.4/release.json",
@@ -50,6 +86,24 @@
       "mandatory": false,
       "title": "HADS 1.46.3",
       "summary": "Oprava oprávnění shellových skriptů v aktualizačním balíčku.",
+      "release_notes": {
+        "fixed": [
+          "Staging aktualizace vždy probíhá mimo nahrazovanou instalační složku HADS.",
+          "Všechny shellové skripty v aktualizačním ZIPu mají oprávnění 755 a extrakce je zachová."
+        ],
+        "important": [
+          "Automatickou instalaci při spuštění nebo restartu lze povolit v Nastavení → Aktualizace."
+        ],
+        "improved": [
+          "Bezpečné stažení a ověření aktualizačního balíčku před instalací."
+        ],
+        "new": [
+          "Aktualizace HADS z oficiální služby updater.heistech.cz."
+        ],
+        "security": [
+          "Ověření podpisu release.json, velikosti balíčku a SHA-256."
+        ]
+      },
       "sha256": "1da37bd495a46687d46569dc007c889e811ea8b891a8bbf77a2e2b4c0742e7ad",
       "byte_size": 3411034,
       "release_url": "/release-files/1.46.3/release.json",
@@ -64,6 +118,23 @@
       "mandatory": false,
       "title": "HADS 1.46.2",
       "summary": "Oprava instalace online aktualizace mimo nahrazovanou složku HADS.",
+      "release_notes": {
+        "fixed": [
+          "Staging aktualizace nyní vždy probíhá mimo nahrazovanou instalační složku HADS."
+        ],
+        "important": [
+          "Automatickou instalaci při spuštění nebo restartu lze povolit v Nastavení → Aktualizace."
+        ],
+        "improved": [
+          "Bezpečné stažení a ověření aktualizačního balíčku před instalací."
+        ],
+        "new": [
+          "Aktualizace HADS z oficiální služby updater.heistech.cz."
+        ],
+        "security": [
+          "Ověření podpisu release.json, velikosti balíčku a SHA-256."
+        ]
+      },
       "sha256": "ed2215732ebcfd7b27d4581a5feabab09a01654225b8ec4f7d5adacd1a1d2263",
       "byte_size": 3435575,
       "release_url": "/release-files/1.46.2/release.json",
@@ -78,6 +149,21 @@
       "mandatory": false,
       "title": "HADS 1.46.1",
       "summary": "Online aktualizace přes zabezpečený endpoint updater.heistech.cz.",
+      "release_notes": {
+        "fixed": [],
+        "important": [
+          "Automatickou instalaci při spuštění nebo restartu lze povolit v Nastavení → Aktualizace."
+        ],
+        "improved": [
+          "Bezpečné stažení a ověření aktualizačního balíčku před instalací."
+        ],
+        "new": [
+          "Aktualizace HADS z oficiální služby updater.heistech.cz."
+        ],
+        "security": [
+          "Ověření podpisu release.json, velikosti balíčku a SHA-256."
+        ]
+      },
       "sha256": "25535a2d306dfc9e44340eddbdcc611dc4c73991e07493829a569ec966041b86",
       "byte_size": 3435435,
       "release_url": "/release-files/1.46.1/release.json",
@@ -92,6 +178,21 @@
       "mandatory": false,
       "title": "HADS 1.46.0",
       "summary": "Aktuální podepsaná verze HADS pro online aktualizaci.",
+      "release_notes": {
+        "fixed": [],
+        "important": [
+          "Automatickou instalaci při spuštění nebo restartu lze povolit v Nastavení → Aktualizace."
+        ],
+        "improved": [
+          "Bezpečné stažení a ověření aktualizačního balíčku před instalací."
+        ],
+        "new": [
+          "Aktualizace HADS z oficiální služby updater.heistech.cz."
+        ],
+        "security": [
+          "Ověření podpisu release.json, velikosti balíčku a SHA-256."
+        ]
+      },
       "sha256": "b8a65a06a2b025c836241aca915cc56f20eccaf5f590da36943396cadd577643",
       "byte_size": 3409307,
       "release_url": "/release-files/1.46.0/release.json",
@@ -106,6 +207,23 @@
       "mandatory": false,
       "title": "HADS 1.0.1",
       "summary": "Test",
+      "release_notes": {
+        "fixed": [
+          "Sem dopln fixed změny"
+        ],
+        "important": [
+          "Sem dopln important změny"
+        ],
+        "improved": [
+          "Sem dopln improved změny"
+        ],
+        "new": [
+          "Sem dopln new změny"
+        ],
+        "security": [
+          "Sem dopln security změny"
+        ]
+      },
       "sha256": "7dd3fe5432eac9f18abec4fb583f18c0356b21fd49e1d72bb5ee880463e9b7d4",
       "byte_size": 316613,
       "release_url": "/release-files/1.0.1/release.json",

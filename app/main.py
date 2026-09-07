@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import html
-import json
 import secrets
 from datetime import date
 from pathlib import Path
@@ -11,7 +10,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 from starlette.middleware.sessions import SessionMiddleware
 
 from .config import get_settings
-from .release_service import ALLOWED_NOTE_KEYS, collect_release_index, publish_release
+from .release_service import collect_release_index, inspect_release_package, publish_release
 from .schemas import HealthResponse
 
 settings = get_settings()
@@ -273,11 +272,6 @@ def render_dashboard(
             f'<div class="card alert-ok"><p>{html.escape(success)}</p>{details}</div>'
         )
 
-    notes_example = {
-        key: [f"Sem dopln {key} změny"]
-        for key in sorted(ALLOWED_NOTE_KEYS)
-    }
-    notes_value = html.escape(json.dumps(notes_example, ensure_ascii=False, indent=2))
     token = secrets.token_urlsafe(16)
     release_overview = render_release_overview(collect_release_index(settings))
 
@@ -285,7 +279,7 @@ def render_dashboard(
       <div class="button-row" style="justify-content: space-between; margin-top: 0;">
         <div>
           <h1>HADS Release Desk</h1>
-          <p class="muted">Nahraj ZIP nové verze, vyplň metadata a backend vytvoří release složku s <code>release.json</code> a <code>release.json.sig</code>.</p>
+          <p class="muted">Nahraj ZIP nové verze. Verze, minimální podporovaná verze a poznámky k vydání se bezpečně načtou z vnitřního <code>manifest.json</code>.</p>
         </div>
         <a class="link-button ghost" href="/logout">Odhlásit</a>
       </div>
@@ -295,14 +289,6 @@ def render_dashboard(
         <input type="hidden" name="csrf_token" value="{token}">
         <div class="grid">
           <div class="field">
-            <label for="version">Verze</label>
-            <input id="version" name="version" placeholder="1.2.3" pattern="\\d+\\.\\d+\\.\\d+" required>
-          </div>
-          <div class="field">
-            <label for="minimum_version">Minimální verze</label>
-            <input id="minimum_version" name="minimum_version" placeholder="1.2.0" pattern="\\d+\\.\\d+\\.\\d+" required>
-          </div>
-          <div class="field">
             <label for="release_date">Datum vydání</label>
             <input id="release_date" name="release_date" type="date" value="{date.today().isoformat()}" required>
           </div>
@@ -311,6 +297,16 @@ def render_dashboard(
             <input id="package_file" name="package_file" type="file" accept=".zip" required>
           </div>
         </div>
+        <section id="manifest_preview" class="card" aria-live="polite">
+          <strong>Manifest balíčku</strong>
+          <p id="manifest_status" class="muted">Vyber ZIP balíček. Před publikací se zde zobrazí ověřená metadata.</p>
+          <div id="manifest_details" hidden>
+            <p><strong>Verze:</strong> <code id="manifest_version"></code></p>
+            <p><strong>Minimální verze:</strong> <code id="manifest_minimum_version"></code></p>
+            <p><strong>Release notes:</strong></p>
+            <pre id="manifest_release_notes"></pre>
+          </div>
+        </section>
         <div class="field">
           <label for="title">Titulek</label>
           <input id="title" name="title" placeholder="HADS 1.2.3" required>
@@ -320,17 +316,69 @@ def render_dashboard(
           <textarea id="summary" name="summary" required></textarea>
         </div>
         <div class="field">
-          <label for="notes_json">Release notes JSON</label>
-          <textarea id="notes_json" name="notes_json" required>{notes_value}</textarea>
-        </div>
-        <div class="field">
           <label><input name="mandatory" type="checkbox" value="1"> Povinný update</label>
         </div>
         <div class="button-row">
-          <button type="submit">Publikovat release</button>
+          <button id="publish_button" type="submit" disabled>Publikovat release</button>
           <span class="muted">Výstup jde do <code>{html.escape(str(settings.release_output_root))}</code>.</span>
         </div>
       </form>
+      <script>
+        (() => {{
+          const form = document.querySelector('form[action="/releases"]');
+          const input = document.getElementById("package_file");
+          const button = document.getElementById("publish_button");
+          const status = document.getElementById("manifest_status");
+          const details = document.getElementById("manifest_details");
+          const version = document.getElementById("manifest_version");
+          const minimum = document.getElementById("manifest_minimum_version");
+          const notes = document.getElementById("manifest_release_notes");
+
+          const clearPreview = (message, isError = false) => {{
+            button.disabled = true;
+            details.hidden = true;
+            status.hidden = false;
+            status.textContent = message;
+            status.style.color = isError ? "var(--error)" : "";
+            input.dataset.inspected = "";
+          }};
+
+          input.addEventListener("change", async () => {{
+            const file = input.files && input.files[0];
+            if (!file) {{
+              clearPreview("Vyber ZIP balíček.");
+              return;
+            }}
+            clearPreview("Ověřuji manifest.json…");
+            const body = new FormData();
+            body.append("csrf_token", form.elements.csrf_token.value);
+            body.append("package_file", file);
+            try {{
+              const response = await fetch("/releases/inspect", {{ method: "POST", body }});
+              const payload = await response.json();
+              if (!response.ok) throw new Error(payload.detail || "Manifest se nepodařilo načíst.");
+              version.textContent = payload.version;
+              minimum.textContent = payload.minimum_version;
+              notes.textContent = JSON.stringify(payload.release_notes, null, 2);
+              status.hidden = true;
+              details.hidden = false;
+              input.dataset.inspected = [file.name, file.size, file.lastModified].join(":");
+              button.disabled = false;
+            }} catch (error) {{
+              clearPreview(error instanceof Error ? error.message : "Manifest se nepodařilo načíst.", true);
+            }}
+          }});
+
+          form.addEventListener("submit", (event) => {{
+            const file = input.files && input.files[0];
+            const fingerprint = file ? [file.name, file.size, file.lastModified].join(":") : "";
+            if (!file || input.dataset.inspected !== fingerprint) {{
+              event.preventDefault();
+              clearPreview("ZIP se změnil; načti a ověř manifest znovu.", true);
+            }}
+          }});
+        }})();
+      </script>
     """
     response = render_page(content, title="HADS Release Desk")
     response.set_cookie("hads_release_csrf", token, httponly=True, samesite="lax")
@@ -487,16 +535,38 @@ def logout(request: Request) -> RedirectResponse:
     return response
 
 
+@app.post("/releases/inspect")
+async def inspect_release(
+    request: Request,
+    csrf_token: str = Form(...),
+    package_file: UploadFile | None = File(default=None),
+) -> JSONResponse:
+    if not is_authenticated(request):
+        raise HTTPException(status_code=401, detail="Session expired")
+
+    cookie_token = request.cookies.get("hads_release_csrf", "")
+    if not secrets.compare_digest(csrf_token, cookie_token):
+        raise HTTPException(status_code=403, detail="Invalid CSRF token")
+    if package_file is None:
+        raise HTTPException(status_code=400, detail="ZIP package is missing")
+
+    manifest = await inspect_release_package(settings, package_file)
+    return JSONResponse(
+        {
+            "version": manifest.version,
+            "minimum_version": manifest.minimum_version,
+            "release_notes": manifest.release_notes,
+        }
+    )
+
+
 @app.post("/releases", response_class=HTMLResponse)
 async def create_release(
     request: Request,
-    version: str = Form(...),
     release_date: str = Form(...),
-    minimum_version: str = Form(...),
     mandatory: str | None = Form(default=None),
     title: str = Form(...),
     summary: str = Form(...),
-    notes_json: str = Form(...),
     csrf_token: str = Form(...),
     package_file: UploadFile | None = File(default=None),
 ) -> HTMLResponse:
@@ -513,13 +583,10 @@ async def create_release(
     try:
         result = await publish_release(
             settings,
-            version=version.strip(),
             release_date=release_date.strip(),
-            minimum_version=minimum_version.strip(),
             mandatory=mandatory == "1",
             title=title,
             summary=summary,
-            notes_json=notes_json,
             package_upload=package_file,
         )
     except Exception as exc:

@@ -5,9 +5,12 @@ import hashlib
 import json
 import re
 import shutil
+import stat
 import subprocess
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path
+from pathlib import PurePosixPath
 from tempfile import TemporaryDirectory
 from urllib.parse import quote
 
@@ -17,6 +20,7 @@ from .config import Settings
 
 VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
 ALLOWED_NOTE_KEYS = {"new", "improved", "fixed", "security", "important"}
+MANIFEST_MAX_BYTES = 1024 * 1024
 
 
 @dataclass
@@ -25,6 +29,13 @@ class ReleasePublishResult:
     version: str
     package_filename: str
     sha256: str
+
+
+@dataclass(frozen=True)
+class PackageManifest:
+    version: str
+    minimum_version: str
+    release_notes: dict[str, list[str]]
 
 
 def _version_tuple(value: str) -> tuple[int, int, int]:
@@ -66,30 +77,136 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _validate_release_notes(notes_text: str) -> dict[str, list[str]]:
+def _validate_release_notes_value(value: object) -> dict[str, list[str]]:
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            raise HTTPException(status_code=400, detail="Release notes in manifest.json are empty")
+        sentences = [part.strip() for part in re.split(r"(?<=[.!?])\s+", text) if part.strip()]
+        chunks: list[str] = []
+        current = ""
+        for sentence in sentences:
+            if len(sentence) > 500:
+                raise HTTPException(
+                    status_code=400,
+                    detail="A release notes sentence in manifest.json exceeds 500 characters",
+                )
+            candidate = f"{current} {sentence}".strip()
+            if current and len(candidate) > 500:
+                chunks.append(current)
+                current = sentence
+            else:
+                current = candidate
+        if current:
+            chunks.append(current)
+        return {key: chunks if key == "important" else [] for key in sorted(ALLOWED_NOTE_KEYS)}
+
     try:
-        value = json.loads(notes_text)
-    except json.JSONDecodeError as exc:
-        raise HTTPException(status_code=400, detail=f"Release notes JSON is invalid: {exc}") from exc
+        items_by_category = dict(value) if isinstance(value, dict) else None
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="Release notes must be an object or text") from exc
+    if items_by_category is None:
+        raise HTTPException(status_code=400, detail="Release notes must be an object or text")
 
-    if not isinstance(value, dict):
-        raise HTTPException(status_code=400, detail="Release notes must be a JSON object")
-
-    normalized: dict[str, list[str]] = {}
-    for key, items in value.items():
+    normalized: dict[str, list[str]] = {key: [] for key in sorted(ALLOWED_NOTE_KEYS)}
+    for key, items in items_by_category.items():
         if key not in ALLOWED_NOTE_KEYS:
             raise HTTPException(
                 status_code=400,
                 detail=f"Unsupported release notes category: {key}",
             )
-        if not isinstance(items, list) or not all(isinstance(item, str) and item.strip() for item in items):
+        if not isinstance(items, list) or not all(
+            isinstance(item, str) and item.strip() and len(item.strip()) <= 500 for item in items
+        ):
             raise HTTPException(
                 status_code=400,
-                detail=f"Release notes category '{key}' must be a list of non-empty strings",
+                detail=f"Release notes category '{key}' must contain non-empty strings up to 500 characters",
             )
         normalized[key] = [item.strip() for item in items]
 
     return normalized
+
+
+def _reject_duplicate_json_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"Duplicate JSON key: {key}")
+        result[key] = value
+    return result
+
+
+def read_package_manifest(package_path: Path, *, expected_product: str) -> PackageManifest:
+    try:
+        with zipfile.ZipFile(package_path) as archive:
+            candidates: list[zipfile.ZipInfo] = []
+            for item in archive.infolist():
+                if item.is_dir() or "\\" in item.filename:
+                    continue
+                path = PurePosixPath(item.filename)
+                if path.is_absolute() or ".." in path.parts:
+                    continue
+                if path.name == "manifest.json":
+                    candidates.append(item)
+
+            if len(candidates) != 1:
+                raise HTTPException(
+                    status_code=400,
+                    detail="ZIP package must contain exactly one manifest.json",
+                )
+
+            manifest_info = candidates[0]
+            mode = manifest_info.external_attr >> 16
+            if stat.S_IFMT(mode) == stat.S_IFLNK:
+                raise HTTPException(status_code=400, detail="manifest.json must not be a symbolic link")
+            if manifest_info.flag_bits & 0x1:
+                raise HTTPException(status_code=400, detail="manifest.json must not be encrypted")
+            if manifest_info.file_size > MANIFEST_MAX_BYTES:
+                raise HTTPException(status_code=400, detail="manifest.json is too large")
+
+            raw = archive.read(manifest_info)
+    except HTTPException:
+        raise
+    except (OSError, RuntimeError, zipfile.BadZipFile, zipfile.LargeZipFile) as exc:
+        raise HTTPException(status_code=400, detail=f"ZIP package is invalid: {exc}") from exc
+
+    try:
+        manifest = json.loads(
+            raw.decode("utf-8"),
+            object_pairs_hook=_reject_duplicate_json_keys,
+        )
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=f"manifest.json is invalid: {exc}") from exc
+    if not isinstance(manifest, dict):
+        raise HTTPException(status_code=400, detail="manifest.json must contain a JSON object")
+    if manifest.get("product") != expected_product:
+        raise HTTPException(status_code=400, detail="manifest.json is for a different product")
+
+    version = manifest.get("version")
+    minimum_version = manifest.get("minimum_version")
+    minimal_version = manifest.get("minimal_version")
+    if minimum_version is not None and minimal_version is not None and minimum_version != minimal_version:
+        raise HTTPException(
+            status_code=400,
+            detail="minimum_version and minimal_version in manifest.json do not match",
+        )
+    if minimum_version is None:
+        minimum_version = minimal_version
+    if not isinstance(version, str) or not isinstance(minimum_version, str):
+        raise HTTPException(
+            status_code=400,
+            detail="manifest.json must contain version and minimum_version",
+        )
+    _version_tuple(version)
+    _version_tuple(minimum_version)
+    if "release_notes" not in manifest:
+        raise HTTPException(status_code=400, detail="manifest.json does not contain release_notes")
+
+    return PackageManifest(
+        version=version.strip(),
+        minimum_version=minimum_version.strip(),
+        release_notes=_validate_release_notes_value(manifest["release_notes"]),
+    )
 
 
 def collect_release_index(settings: Settings, *, base_url: str = "") -> dict:
@@ -122,6 +239,7 @@ def collect_release_index(settings: Settings, *, base_url: str = "") -> dict:
                 "mandatory": metadata.get("mandatory"),
                 "title": metadata.get("title"),
                 "summary": metadata.get("summary"),
+                "release_notes": metadata.get("release_notes"),
                 "sha256": metadata.get("sha256"),
                 "byte_size": metadata.get("byte_size"),
                 **_release_links(version, package_filename, base_url=base_url),
@@ -184,35 +302,52 @@ async def _save_upload(upload: UploadFile, destination: Path) -> None:
     await upload.close()
 
 
+async def inspect_release_package(
+    settings: Settings,
+    package_upload: UploadFile,
+) -> PackageManifest:
+    filename = Path(package_upload.filename or "").name
+    if not filename.lower().endswith(".zip"):
+        raise HTTPException(status_code=400, detail="Package must be a .zip file")
+
+    with TemporaryDirectory(prefix="hads-release-inspect-") as temp_dir:
+        temp_package = Path(temp_dir) / filename
+        await _save_upload(package_upload, temp_package)
+        return read_package_manifest(
+            temp_package,
+            expected_product=settings.release_product,
+        )
+
+
 async def publish_release(
     settings: Settings,
     *,
-    version: str,
     release_date: str,
-    minimum_version: str,
     mandatory: bool,
     title: str,
     summary: str,
-    notes_json: str,
     package_upload: UploadFile,
 ) -> ReleasePublishResult:
-    _version_tuple(version)
-    _version_tuple(minimum_version)
-    notes = _validate_release_notes(notes_json)
-
     filename = Path(package_upload.filename or "").name
     if not filename.lower().endswith(".zip"):
         raise HTTPException(status_code=400, detail="Package must be a .zip file")
 
     output_root = settings.release_output_root
     output_root.mkdir(parents=True, exist_ok=True)
-    folder = output_root / version
-    if folder.exists():
-        raise HTTPException(status_code=409, detail=f"Release {version} already exists")
-
     with TemporaryDirectory(prefix="hads-release-upload-") as temp_dir:
         temp_package = Path(temp_dir) / filename
         await _save_upload(package_upload, temp_package)
+        package_manifest = read_package_manifest(
+            temp_package,
+            expected_product=settings.release_product,
+        )
+        version = package_manifest.version
+        minimum_version = package_manifest.minimum_version
+        notes = package_manifest.release_notes
+
+        folder = output_root / version
+        if folder.exists():
+            raise HTTPException(status_code=409, detail=f"Release {version} already exists")
 
         folder.mkdir(parents=True)
         try:
