@@ -42,7 +42,10 @@ class ReleaseOverviewTests(unittest.TestCase):
             "package_url": "/release-files/1.46.4/HADS_Update_1.46.4.zip",
             "current": False,
         }
-        markup = render_release_overview({"current": current, "releases": [current, previous]})
+        markup = render_release_overview(
+            {"current": current, "releases": [current, previous]},
+            csrf_token="test-csrf-token",
+        )
         self.assertIn("Aktuální verze", markup)
         self.assertIn("1.46.5", markup)
         self.assertIn("1.46.4", markup)
@@ -50,6 +53,10 @@ class ReleaseOverviewTests(unittest.TestCase):
         self.assertIn("3.3 MB", markup)
         self.assertIn("Povinná", markup)
         self.assertIn(current["package_url"], markup)
+        self.assertIn('/releases/1.46.5/delete', markup)
+        self.assertIn('value="test-csrf-token"', markup)
+        self.assertEqual(markup.count('>Smazat</button>'), 2)
+        self.assertIn('return confirm(', markup)
 
     def test_release_values_are_html_escaped(self):
         unsafe = {

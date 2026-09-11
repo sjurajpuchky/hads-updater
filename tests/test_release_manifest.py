@@ -11,7 +11,12 @@ from unittest import mock
 from fastapi import HTTPException, UploadFile
 
 from app.config import Settings
-from app.release_service import publish_release, read_package_manifest
+from app.release_service import (
+    delete_release,
+    publish_release,
+    read_package_manifest,
+    write_release_index,
+)
 
 
 def write_package(path: Path, manifest: dict, *, manifest_name: str = "HADS_Update_9.8.7/manifest.json") -> None:
@@ -137,6 +142,88 @@ class PublishManifestTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(metadata["release_notes"], notes)
         self.assertEqual(index["current"]["version"], "9.9.0")
         self.assertEqual(index["current"]["release_notes"], notes)
+
+
+class DeleteReleaseTests(unittest.TestCase):
+    def make_settings(self, root: Path) -> Settings:
+        return Settings(
+            app_name="Test",
+            session_secret="test",
+            admin_username="test",
+            admin_password="test",
+            release_product="HADS",
+            release_output_root=root / "releases",
+            release_private_key=root / "unused.pem",
+        )
+
+    def add_release(self, settings: Settings, version: str) -> Path:
+        folder = settings.release_output_root / version
+        folder.mkdir(parents=True)
+        package = folder / f"HADS_Update_{version}.zip"
+        package.write_bytes(b"package")
+        (folder / "release.json").write_text(
+            json.dumps(
+                {
+                    "product": "HADS",
+                    "version": version,
+                    "release_date": "2026-09-11",
+                    "package_filename": package.name,
+                    "byte_size": package.stat().st_size,
+                    "sha256": "test",
+                    "minimum_version": "1.0.0",
+                    "mandatory": False,
+                    "title": f"HADS {version}",
+                    "summary": "Test",
+                    "release_notes": {},
+                }
+            ),
+            encoding="utf-8",
+        )
+        return folder
+
+    def test_deletes_release_and_promotes_next_version(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            settings = self.make_settings(Path(temp_dir))
+            old_folder = self.add_release(settings, "1.2.0")
+            current_folder = self.add_release(settings, "1.3.0")
+            write_release_index(settings)
+
+            delete_release(settings, "1.3.0")
+
+            index = json.loads(
+                (settings.release_output_root / "releases.json").read_text(encoding="utf-8")
+            )
+            self.assertFalse(current_folder.exists())
+            self.assertTrue(old_folder.is_dir())
+            self.assertEqual(index["current"]["version"], "1.2.0")
+            self.assertEqual([item["version"] for item in index["releases"]], ["1.2.0"])
+
+    def test_rejects_invalid_or_missing_release(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            settings = self.make_settings(Path(temp_dir))
+            with self.assertRaises(HTTPException) as invalid:
+                delete_release(settings, "../keys")
+            self.assertEqual(invalid.exception.status_code, 400)
+
+            settings.release_output_root.mkdir()
+            with self.assertRaises(HTTPException) as missing:
+                delete_release(settings, "9.9.9")
+            self.assertEqual(missing.exception.status_code, 404)
+
+    def test_restores_release_when_index_write_fails(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            settings = self.make_settings(Path(temp_dir))
+            folder = self.add_release(settings, "1.2.3")
+
+            with mock.patch(
+                "app.release_service.write_release_index",
+                side_effect=OSError("disk full"),
+            ):
+                with self.assertRaises(HTTPException) as caught:
+                    delete_release(settings, "1.2.3")
+
+            self.assertEqual(caught.exception.status_code, 500)
+            self.assertTrue(folder.is_dir())
 
 
 if __name__ == "__main__":

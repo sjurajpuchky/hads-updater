@@ -10,7 +10,12 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 from starlette.middleware.sessions import SessionMiddleware
 
 from .config import get_settings
-from .release_service import collect_release_index, inspect_release_package, publish_release
+from .release_service import (
+    collect_release_index,
+    delete_release,
+    inspect_release_package,
+    publish_release,
+)
 from .schemas import HealthResponse
 
 settings = get_settings()
@@ -127,6 +132,10 @@ def render_page(content: str, *, title: str) -> HTMLResponse:
       color: var(--ink);
       border: 1px solid var(--line);
     }}
+    .danger {{ background: var(--error); }}
+    .danger:hover {{ background: #7f2119; }}
+    .inline-form {{ display: inline; }}
+    .compact-button {{ padding: 8px 13px; font-size: 0.9rem; }}
     .card {{
       padding: 18px;
       border-radius: 20px;
@@ -273,7 +282,10 @@ def render_dashboard(
         )
 
     token = secrets.token_urlsafe(16)
-    release_overview = render_release_overview(collect_release_index(settings))
+    release_overview = render_release_overview(
+        collect_release_index(settings),
+        csrf_token=token,
+    )
 
     content = f"""
       <div class="button-row" style="justify-content: space-between; margin-top: 0;">
@@ -409,7 +421,7 @@ def _format_bytes(value: object) -> str:
     return "—"
 
 
-def render_release_overview(index: dict) -> str:
+def render_release_overview(index: dict, *, csrf_token: str | None = None) -> str:
     releases = index.get("releases") if isinstance(index, dict) else None
     current = index.get("current") if isinstance(index, dict) else None
     if not isinstance(releases, list) or not releases or not isinstance(current, dict):
@@ -436,6 +448,22 @@ def render_release_overview(index: dict) -> str:
         state = '<span class="badge">Aktuální</span>' if release.get("current") else "Dostupná"
         if release.get("mandatory"):
             state += ' <span class="badge badge-warn">Povinná</span>'
+        actions = f'<a class="version-link" href="{package_url}">Stáhnout ZIP</a>'
+        if csrf_token:
+            raw_version = str(release.get("version") or "")
+            delete_url = html.escape(f"/releases/{raw_version}/delete", quote=True)
+            safe_token = html.escape(csrf_token, quote=True)
+            confirm_text = html.escape(
+                f"Opravdu smazat release {raw_version}? Tuto akci nelze vrátit zpět.",
+                quote=True,
+            )
+            actions += (
+                f' <form class="inline-form" method="post" action="{delete_url}" '
+                f'onsubmit="return confirm(&quot;{confirm_text}&quot;)">'
+                f'<input type="hidden" name="csrf_token" value="{safe_token}">'
+                '<button class="danger compact-button" type="submit">Smazat</button>'
+                '</form>'
+            )
         rows.append(
             "<tr>"
             f"<td><strong>{version}</strong></td>"
@@ -443,7 +471,7 @@ def render_release_overview(index: dict) -> str:
             f"<td>{minimum}</td>"
             f"<td>{_format_bytes(release.get('byte_size'))}</td>"
             f"<td>{state}</td>"
-            f'<td><a class="version-link" href="{package_url}">Stáhnout ZIP</a></td>'
+            f"<td>{actions}</td>"
             "</tr>"
         )
 
@@ -611,3 +639,25 @@ async def create_release(
         release_path=str(result.folder),
         package_sha256=result.sha256,
     )
+
+
+@app.post("/releases/{version}/delete", response_class=HTMLResponse)
+def remove_release(
+    version: str,
+    request: Request,
+    csrf_token: str = Form(...),
+) -> HTMLResponse:
+    if not is_authenticated(request):
+        return render_login("Session vypršela, přihlas se znovu.")
+
+    cookie_token = request.cookies.get("hads_release_csrf", "")
+    if not secrets.compare_digest(csrf_token, cookie_token):
+        return render_dashboard(error="Neplatný CSRF token, obnov stránku a zkus to znovu.")
+
+    try:
+        delete_release(settings, version)
+    except Exception as exc:
+        detail = getattr(exc, "detail", str(exc))
+        return render_dashboard(error=str(detail))
+
+    return render_dashboard(success=f"Release {version} byl úspěšně smazán.")

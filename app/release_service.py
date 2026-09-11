@@ -7,6 +7,7 @@ import re
 import shutil
 import stat
 import subprocess
+import uuid
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -264,11 +265,68 @@ def write_release_index(settings: Settings) -> Path:
     output_root.mkdir(parents=True, exist_ok=True)
     index_path = output_root / "releases.json"
     payload = collect_release_index(settings)
-    index_path.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
+    temporary_path = output_root / f".releases-{uuid.uuid4().hex}.tmp"
+    try:
+        temporary_path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        temporary_path.replace(index_path)
+    finally:
+        temporary_path.unlink(missing_ok=True)
     return index_path
+
+
+def delete_release(settings: Settings, version: str) -> None:
+    version = version.strip()
+    _version_tuple(version)
+
+    output_root = settings.release_output_root.resolve()
+    folder = output_root / version
+    if folder.is_symlink():
+        raise HTTPException(status_code=400, detail="Release folder must not be a symbolic link")
+    if not folder.is_dir():
+        raise HTTPException(status_code=404, detail=f"Release {version} does not exist")
+
+    metadata_path = folder / "release.json"
+    if metadata_path.is_symlink() or not metadata_path.is_file():
+        raise HTTPException(status_code=409, detail=f"Release {version} is incomplete")
+    try:
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=409, detail=f"Release {version} has invalid metadata") from exc
+    if not isinstance(metadata, dict) or metadata.get("version") != version:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Release metadata does not match folder {version}",
+        )
+
+    quarantine_root = output_root.parent / f".{output_root.name}-delete-{uuid.uuid4().hex}"
+    quarantine_folder = quarantine_root / version
+    try:
+        quarantine_root.mkdir()
+        folder.rename(quarantine_folder)
+    except OSError as exc:
+        shutil.rmtree(quarantine_root, ignore_errors=True)
+        raise HTTPException(status_code=500, detail=f"Release {version} could not be removed") from exc
+
+    try:
+        write_release_index(settings)
+    except Exception as exc:
+        try:
+            quarantine_folder.rename(folder)
+            quarantine_root.rmdir()
+        except OSError as rollback_exc:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Release index update and rollback failed for {version}",
+            ) from rollback_exc
+        raise HTTPException(
+            status_code=500,
+            detail=f"Release index could not be updated; release {version} was restored",
+        ) from exc
+
+    shutil.rmtree(quarantine_root, ignore_errors=True)
 
 
 def _sign(data: bytes, private_key: Path) -> bytes:

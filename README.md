@@ -31,6 +31,7 @@ The admin UI lets you:
 - preview and validate `version`, `minimum_version` (or `minimal_version`) and `release_notes` loaded from the package's single `manifest.json`
 - fill only the metadata that is not part of the package manifest: `release_date`, `title`, `summary`
 - mark the release as mandatory
+- delete an existing release after explicit confirmation; deleting the current release automatically promotes the newest remaining version
 
 The preview is informational. On publication the backend reads and validates the uploaded ZIP again and uses the manifest values as the only source for the version, minimum version and release notes. A text `release_notes` value is normalized to the `important` category; a structured object may use `new`, `improved`, `fixed`, `security` and `important`.
 
