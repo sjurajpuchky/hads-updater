@@ -228,8 +228,8 @@ def resolve_release_file(version: str, filename: str) -> Path:
     return target
 
 
-def resolve_current_release_file(filename: str) -> Path:
-    index = collect_release_index(settings)
+def resolve_current_release_file(filename: str, *, product: str | None = None) -> Path:
+    index = collect_release_index(settings, product=product)
     current = index.get("current")
     if not isinstance(current, dict) or not isinstance(current.get("version"), str):
         raise FileNotFoundError("No release is published")
@@ -282,9 +282,10 @@ def render_dashboard(
         )
 
     token = secrets.token_urlsafe(16)
-    release_overview = render_release_overview(
-        collect_release_index(settings),
-        csrf_token=token,
+    release_overview = "".join(
+        f"<h2>{html.escape(product)}</h2>" + render_release_overview(
+            collect_release_index(settings, product=product), csrf_token=token
+        ) for product in (settings.release_product, "DDSHAD")
     )
 
     content = f"""
@@ -313,6 +314,7 @@ def render_dashboard(
           <strong>Manifest balíčku</strong>
           <p id="manifest_status" class="muted">Vyber ZIP balíček. Před publikací se zde zobrazí ověřená metadata.</p>
           <div id="manifest_details" hidden>
+            <p><strong>Produkt:</strong> <code id="manifest_product"></code></p>
             <p><strong>Verze:</strong> <code id="manifest_version"></code></p>
             <p><strong>Minimální verze:</strong> <code id="manifest_minimum_version"></code></p>
             <p><strong>Release notes:</strong></p>
@@ -382,6 +384,7 @@ def render_dashboard(
                 throw new Error(`Server vrátil neočekávanou odpověď (HTTP ${{response.status}}).`);
               }}
               if (!response.ok) throw new Error(payload.detail || "Manifest se nepodařilo načíst.");
+              document.getElementById("manifest_product").textContent = payload.product;
               version.textContent = payload.version;
               minimum.textContent = payload.minimum_version;
               notes.textContent = JSON.stringify(payload.release_notes, null, 2);
@@ -453,6 +456,7 @@ def render_release_overview(index: dict, *, csrf_token: str | None = None) -> st
             raw_version = str(release.get("version") or "")
             delete_url = html.escape(f"/releases/{raw_version}/delete", quote=True)
             safe_token = html.escape(csrf_token, quote=True)
+            product = html.escape(str(index.get("product") or settings.release_product), quote=True)
             confirm_text = html.escape(
                 f"Opravdu smazat release {raw_version}? Tuto akci nelze vrátit zpět.",
                 quote=True,
@@ -461,6 +465,7 @@ def render_release_overview(index: dict, *, csrf_token: str | None = None) -> st
                 f' <form class="inline-form" method="post" action="{delete_url}" '
                 f'onsubmit="return confirm(&quot;{confirm_text}&quot;)">'
                 f'<input type="hidden" name="csrf_token" value="{safe_token}">'
+                f'<input type="hidden" name="product" value="{product}">'
                 '<button class="danger compact-button" type="submit">Smazat</button>'
                 '</form>'
             )
@@ -530,6 +535,24 @@ def current_release_signature() -> FileResponse:
     return FileResponse(target, media_type="text/plain", headers={"Cache-Control": "no-cache"})
 
 
+@app.get("/ddshad-release.json")
+def current_ddshad_release() -> FileResponse:
+    try:
+        target = resolve_current_release_file("ddshad-release.json", product="DDSHAD")
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="No DDSHAD release is published")
+    return FileResponse(target, media_type="application/json", headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/ddshad-release.json.sig")
+def current_ddshad_release_signature() -> FileResponse:
+    try:
+        target = resolve_current_release_file("ddshad-release.json.sig", product="DDSHAD")
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="No DDSHAD release is published")
+    return FileResponse(target, media_type="text/plain", headers={"Cache-Control": "no-cache"})
+
+
 @app.get("/release-files/{version}/{filename:path}")
 def release_file(version: str, filename: str) -> FileResponse:
     try:
@@ -594,6 +617,7 @@ async def inspect_release(
     manifest = await inspect_release_package(settings, package_file)
     return JSONResponse(
         {
+            "product": manifest.product,
             "version": manifest.version,
             "minimum_version": manifest.minimum_version,
             "release_notes": manifest.release_notes,
@@ -646,6 +670,7 @@ def remove_release(
     version: str,
     request: Request,
     csrf_token: str = Form(...),
+    product: str = Form(default=settings.release_product),
 ) -> HTMLResponse:
     if not is_authenticated(request):
         return render_login("Session vypršela, přihlas se znovu.")
@@ -655,7 +680,7 @@ def remove_release(
         return render_dashboard(error="Neplatný CSRF token, obnov stránku a zkus to znovu.")
 
     try:
-        delete_release(settings, version)
+        delete_release(settings, version, product=product)
     except Exception as exc:
         detail = getattr(exc, "detail", str(exc))
         return render_dashboard(error=str(detail))

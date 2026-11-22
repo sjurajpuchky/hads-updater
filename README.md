@@ -66,8 +66,30 @@ Public update endpoints:
 - `GET /release-files/<version>/release.json.sig` returns the signature
 - `GET /release-files/<version>/<package>.zip` returns the uploaded package
 
-If signing or file writing fails, the target release folder is deleted so a partial release does not remain on disk.
+If signing or file writing fails, files created for that release are removed. Files belonging to the other product in the same version folder are preserved.
 
 ## Notes
 
 - For production, change the default admin credentials and session secret before exposing the app anywhere.
+
+## DDSHAD releases
+
+The ZIP manifest `product` selects the release series: `HADS` (the configured
+`HADS_RELEASE_PRODUCT`) or `DDSHAD`. Unknown products are rejected. Preview returns
+`product` together with the manifest version and notes. The dashboard displays
+each product separately, and deletion includes a `product` form field (defaults
+to HADS for existing callers).
+
+DDSHAD current-release endpoints are `GET /ddshad-release.json` and
+`GET /ddshad-release.json.sig`. They return 404 when no DDSHAD release exists,
+and use the same signing key, signature encoding and metadata format as HADS.
+The HADS `/release.json`, `/release.json.sig` and `/releases.json` endpoints
+continue to refer only to HADS. Each series selects its highest numeric version.
+
+Both products share `release-files/<version>/`. HADS metadata keeps the names
+`release.json` and `release.json.sig`; DDSHAD metadata uses `ddshad-release.json`
+and `ddshad-release.json.sig` inside that same version folder. Package names are
+preserved; if both products use the same version, their ZIP filenames must differ
+(a filename collision returns 409). Existing releases need no migration.
+A separate `ddshad-releases.json` index is maintained on disk. Deletion removes
+only the chosen product and promotes its next highest version.

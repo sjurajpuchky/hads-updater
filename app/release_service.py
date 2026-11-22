@@ -34,6 +34,7 @@ class ReleasePublishResult:
 
 @dataclass(frozen=True)
 class PackageManifest:
+    product: str
     version: str
     minimum_version: str
     release_notes: dict[str, list[str]]
@@ -47,19 +48,25 @@ def _version_tuple(value: str) -> tuple[int, int, int]:
     return tuple(int(part) for part in value.split("."))
 
 
+def _metadata_filename(product: str) -> str:
+    return "ddshad-release.json" if product == "DDSHAD" else "release.json"
+
+
 def _release_links(
     version: str,
     package_filename: str,
     *,
     base_url: str = "",
+    product: str = "HADS",
 ) -> dict[str, str]:
     safe_base = base_url.rstrip("/")
     version_part = quote(version, safe="")
     package_part = quote(package_filename, safe="")
     root = f"{safe_base}/release-files/{version_part}"
+    metadata_name = _metadata_filename(product)
     return {
-        "release_url": f"{root}/release.json",
-        "signature_url": f"{root}/release.json.sig",
+        "release_url": f"{root}/{metadata_name}",
+        "signature_url": f"{root}/{metadata_name}.sig",
         "package_url": f"{root}/{package_part}",
     }
 
@@ -180,7 +187,7 @@ def read_package_manifest(package_path: Path, *, expected_product: str) -> Packa
         raise HTTPException(status_code=400, detail=f"manifest.json is invalid: {exc}") from exc
     if not isinstance(manifest, dict):
         raise HTTPException(status_code=400, detail="manifest.json must contain a JSON object")
-    if manifest.get("product") != expected_product:
+    if manifest.get("product") not in (expected_product, "DDSHAD"):
         raise HTTPException(status_code=400, detail="manifest.json is for a different product")
 
     version = manifest.get("version")
@@ -204,13 +211,15 @@ def read_package_manifest(package_path: Path, *, expected_product: str) -> Packa
         raise HTTPException(status_code=400, detail="manifest.json does not contain release_notes")
 
     return PackageManifest(
+        product=manifest["product"],
         version=version.strip(),
         minimum_version=minimum_version.strip(),
         release_notes=_validate_release_notes_value(manifest["release_notes"]),
     )
 
 
-def collect_release_index(settings: Settings, *, base_url: str = "") -> dict:
+def collect_release_index(settings: Settings, *, base_url: str = "", product: str | None = None) -> dict:
+    product = product or settings.release_product
     releases: list[dict] = []
     output_root = settings.release_output_root
 
@@ -219,13 +228,16 @@ def collect_release_index(settings: Settings, *, base_url: str = "") -> dict:
             if not folder.is_dir():
                 continue
 
-            release_file = folder / "release.json"
+            release_file = folder / _metadata_filename(product)
             if not release_file.is_file():
                 continue
 
             try:
                 metadata = json.loads(release_file.read_text(encoding="utf-8"))
             except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+                continue
+
+            if not isinstance(metadata, dict) or metadata.get("product") != product:
                 continue
 
             version = metadata.get("version")
@@ -243,7 +255,7 @@ def collect_release_index(settings: Settings, *, base_url: str = "") -> dict:
                 "release_notes": metadata.get("release_notes"),
                 "sha256": metadata.get("sha256"),
                 "byte_size": metadata.get("byte_size"),
-                **_release_links(version, package_filename, base_url=base_url),
+                **_release_links(version, package_filename, base_url=base_url, product=product),
             }
             releases.append(item)
 
@@ -254,17 +266,18 @@ def collect_release_index(settings: Settings, *, base_url: str = "") -> dict:
 
     current = next((item for item in releases if item["current"]), None)
     return {
-        "product": settings.release_product,
+        "product": product,
         "current": current,
         "releases": releases,
     }
 
 
-def write_release_index(settings: Settings) -> Path:
+def write_release_index(settings: Settings, *, product: str | None = None) -> Path:
+    product = product or settings.release_product
     output_root = settings.release_output_root
     output_root.mkdir(parents=True, exist_ok=True)
-    index_path = output_root / "releases.json"
-    payload = collect_release_index(settings)
+    index_path = output_root / ("ddshad-releases.json" if product == "DDSHAD" else "releases.json")
+    payload = collect_release_index(settings, product=product)
     temporary_path = output_root / f".releases-{uuid.uuid4().hex}.tmp"
     try:
         temporary_path.write_text(
@@ -277,7 +290,10 @@ def write_release_index(settings: Settings) -> Path:
     return index_path
 
 
-def delete_release(settings: Settings, version: str) -> None:
+def delete_release(settings: Settings, version: str, *, product: str | None = None) -> None:
+    product = product or settings.release_product
+    if product not in {settings.release_product, "DDSHAD"}:
+        raise HTTPException(status_code=400, detail="Unsupported product")
     version = version.strip()
     _version_tuple(version)
 
@@ -288,45 +304,45 @@ def delete_release(settings: Settings, version: str) -> None:
     if not folder.is_dir():
         raise HTTPException(status_code=404, detail=f"Release {version} does not exist")
 
-    metadata_path = folder / "release.json"
+    metadata_path = folder / _metadata_filename(product)
     if metadata_path.is_symlink() or not metadata_path.is_file():
         raise HTTPException(status_code=409, detail=f"Release {version} is incomplete")
     try:
         metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise HTTPException(status_code=409, detail=f"Release {version} has invalid metadata") from exc
-    if not isinstance(metadata, dict) or metadata.get("version") != version:
+    if not isinstance(metadata, dict) or metadata.get("version") != version or metadata.get("product") != product:
         raise HTTPException(
             status_code=409,
             detail=f"Release metadata does not match folder {version}",
         )
 
+    package_name = metadata.get("package_filename")
+    if not isinstance(package_name, str) or Path(package_name).name != package_name or not package_name.lower().endswith(".zip"):
+        raise HTTPException(status_code=409, detail="Invalid package filename")
+    other_product = settings.release_product if product == "DDSHAD" else "DDSHAD"
+    other_metadata = folder / _metadata_filename(other_product)
+    if other_metadata.exists():
+        other = json.loads(other_metadata.read_text(encoding="utf-8"))
+        if other.get("package_filename") == package_name:
+            raise HTTPException(status_code=409, detail="Package is shared by another product")
     quarantine_root = output_root.parent / f".{output_root.name}-delete-{uuid.uuid4().hex}"
-    quarantine_folder = quarantine_root / version
+    moved: list[Path] = []
     try:
         quarantine_root.mkdir()
-        folder.rename(quarantine_folder)
-    except OSError as exc:
-        shutil.rmtree(quarantine_root, ignore_errors=True)
-        raise HTTPException(status_code=500, detail=f"Release {version} could not be removed") from exc
-
-    try:
-        write_release_index(settings)
+        for source in (metadata_path, folder / (metadata_path.name + ".sig"), folder / package_name):
+            if source.exists():
+                source.rename(quarantine_root / source.name)
+                moved.append(source)
+        write_release_index(settings, product=product)
     except Exception as exc:
-        try:
-            quarantine_folder.rename(folder)
-            quarantine_root.rmdir()
-        except OSError as rollback_exc:
-            raise HTTPException(
-                status_code=500,
-                detail=f"Release index update and rollback failed for {version}",
-            ) from rollback_exc
-        raise HTTPException(
-            status_code=500,
-            detail=f"Release index could not be updated; release {version} was restored",
-        ) from exc
-
+        for source in reversed(moved):
+            (quarantine_root / source.name).rename(source)
+        shutil.rmtree(quarantine_root, ignore_errors=True)
+        raise HTTPException(status_code=500, detail=f"Release {version} could not be deleted; files restored") from exc
     shutil.rmtree(quarantine_root, ignore_errors=True)
+    if not any(folder.iterdir()):
+        folder.rmdir()
 
 
 def _sign(data: bytes, private_key: Path) -> bytes:
@@ -403,17 +419,25 @@ async def publish_release(
         minimum_version = package_manifest.minimum_version
         notes = package_manifest.release_notes
 
+        product = package_manifest.product
+        metadata_name = _metadata_filename(product)
         folder = output_root / version
-        if folder.exists():
+        if folder.is_symlink():
+            raise HTTPException(status_code=400, detail="Release folder must not be a symbolic link")
+        if (folder / metadata_name).exists():
             raise HTTPException(status_code=409, detail=f"Release {version} already exists")
 
-        folder.mkdir(parents=True)
+        if (folder / filename).exists():
+            raise HTTPException(status_code=409, detail="Package filename already exists for this version")
+        folder.mkdir(parents=True, exist_ok=True)
+        created: list[Path] = []
         try:
             target_package = folder / filename
+            created.append(target_package)
             shutil.copy2(temp_package, target_package)
 
             metadata = {
-                "product": settings.release_product,
+                "product": product,
                 "version": version,
                 "release_date": release_date,
                 "package_filename": target_package.name,
@@ -428,12 +452,13 @@ async def publish_release(
             raw = _canonical_json(metadata)
             signature = _sign(raw, settings.release_private_key)
 
-            (folder / "release.json").write_bytes(raw + b"\n")
-            (folder / "release.json.sig").write_text(
+            created.extend([folder / metadata_name, folder / (metadata_name + ".sig")])
+            (folder / metadata_name).write_bytes(raw + b"\n")
+            (folder / (metadata_name + ".sig")).write_text(
                 base64.b64encode(signature).decode("ascii") + "\n",
                 encoding="ascii",
             )
-            write_release_index(settings)
+            write_release_index(settings, product=product)
 
             return ReleasePublishResult(
                 folder=folder,
@@ -442,5 +467,8 @@ async def publish_release(
                 sha256=metadata["sha256"],
             )
         except Exception:
-            shutil.rmtree(folder, ignore_errors=True)
+            for path in created:
+                path.unlink(missing_ok=True)
+            if not any(folder.iterdir()):
+                folder.rmdir()
             raise
